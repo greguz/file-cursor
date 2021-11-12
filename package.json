@@ -1,0 +1,42 @@
+{
+  "name": "file-cursor",
+  "version": "0.0.0",
+  "description": "Binary file cursor for Node.js",
+  "type": "module",
+  "main": "./file-cursor.cjs",
+  "exports": {
+    "import": "./file-cursor.mjs",
+    "require": "./file-cursor.cjs"
+  },
+  "types": "./file-cursor.d.ts",
+  "files": [
+    "file-cursor.cjs",
+    "file-cursor.mjs",
+    "file-cursor.d.ts"
+  ],
+  "scripts": {
+    "build": "rollup -c",
+    "lint": "standard **/*.mjs",
+    "test": "c8 -r html -r lcov -r text -x **/*.spec.mjs ava",
+    "prepublishOnly": "npm run lint && npm run build && npm test"
+  },
+  "keywords": [
+    "file",
+    "descriptor",
+    "seek",
+    "buffer",
+    "fs"
+  ],
+  "author": "Giacomo Gregoletto",
+  "license": "MIT",
+  "devDependencies": {
+    "ava": "4.0.0-rc.1",
+    "c8": "^7.10.0",
+    "rollup": "^2.59.0",
+    "standard": "^16.0.4"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/greguz/file-cursor.git"
+  }
+}
