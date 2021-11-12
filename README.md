@@ -1,5 +1,10 @@
 # file-cursor
 
+[![JavaScript Style Guide](https://img.shields.io/badge/code_style-standard-brightgreen.svg)](https://standardjs.com)
+[![Coverage Status](https://coveralls.io/repos/github/greguz/file-cursor/badge.svg?branch=master)](https://coveralls.io/github/greguz/file-cursor?branch=master)
+![npm](https://img.shields.io/npm/v/file-cursor)
+![npm bundle size](https://img.shields.io/bundlephobia/minzip/file-cursor)
+
 Node.js has a nice FS implementation in place. But there are no simple methods to open a file cursor and jump forward or backward through bytes easily (as far as I know). This library should be an optimized way to handle gigantic files and hops back and forth between bytes without too many problems.
 
 ## Why and how does It work
