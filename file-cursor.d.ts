@@ -15,6 +15,12 @@ export interface FileCursorOptions {
    * @default 16384
    */
   bufferSize?: number;
+  /**
+   * Initial cursor position (index).
+   * 
+   * @default 0
+   */
+  position?: number;
 }
 
 export declare class FileCursor implements AsyncIterableIterator<Buffer> {

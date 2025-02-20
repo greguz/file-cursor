@@ -84,6 +84,7 @@ export class FileCursor {
    * @param {number} [options.fd] File descriptor got from `fs.open`.
    * @param {FileHandle} [options.fileHandle] Instance of `FileHandle` got from `fsPromises.open`.
    * @param {number} [options.bufferSize=16384] Internal buffer size in bytes, defaults to 16 KiB.
+   * @param {number} [options.position=0] Initial cursor position (index), defaults to `0`.
    */
   constructor (options) {
     if (typeof options !== 'object' || options === null) {
@@ -103,6 +104,11 @@ export class FileCursor {
       throw new TypeError('Buffer size must be a positive integer')
     }
 
+    const position = options.position || 0
+    if (!isInteger(position) || position < 0) {
+      throw new TypeError('Initial position a positive integer or zero')
+    }
+
     // Buffer allocation
     this.bufferSize = bufferSize
 
@@ -113,7 +119,7 @@ export class FileCursor {
     this._index = 0
 
     // File position (index) from which the Buffer was read
-    this._position = 0
+    this._position = position
 
     // Status flag
     this._eof = false

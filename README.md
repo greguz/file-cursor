@@ -61,9 +61,10 @@ try {
 Either `fd` or `fileHandle` option must be provided.
 
 - `options` `<Object>`
-  - `[fd]` File descriptor got from [fs.open](https://nodejs.org/api/fs.html#fsopenpath-flags-mode-callback).
-  - `[fileHandle]` Instance of [FileHandle](https://nodejs.org/api/fs.html#class-filehandle) got from [fsPromises.open](https://nodejs.org/api/fs.html#fspromisesopenpath-flags-mode).
-  - `[bufferSize]` `<Number>` Internal buffer size in bytes, defaults to 16 KiB.
+  - `[fd]`: File descriptor got from [fs.open](https://nodejs.org/api/fs.html#fsopenpath-flags-mode-callback).
+  - `[fileHandle]`: Instance of [FileHandle](https://nodejs.org/api/fs.html#class-filehandle) got from [fsPromises.open](https://nodejs.org/api/fs.html#fspromisesopenpath-flags-mode).
+  - `[bufferSize]` `<Number>`: Internal buffer size in bytes, defaults to 16 KiB.
+  - `[position]` `<Number>`: Initial cursor position (index), defaults to `0`.
 
 ### `FileCursor::fd`
 

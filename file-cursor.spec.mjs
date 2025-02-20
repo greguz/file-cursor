@@ -12,7 +12,6 @@ tap.test('constructor', async t => {
 })
 
 function fromString (data, ...notifiers) {
-  let i = 0
   return function readMock (fd, buffer, offset, length, position, callback) {
     const notify = notifiers.shift()
     if (notify) {
@@ -20,11 +19,11 @@ function fromString (data, ...notifiers) {
     }
 
     process.nextTick(() => {
-      const bytesRead = buffer.write(
-        data.substring(i, i + length)
-      )
-
-      i += length
+      const chunk = data.substring(position, position + length)
+      const bytesRead = chunk.length
+      if (bytesRead) {
+        buffer.write(chunk, offset)
+      }
       callback(null, bytesRead)
     })
   }
@@ -200,6 +199,7 @@ tap.test('validation', async t => {
   t.throws(() => new FileCursor({}))
   t.ok(new FileCursor({ fileHandle: {} }))
   t.throws(() => new FileCursor({ bufferSize: '42', fileHandle: {} }))
+  t.throws(() => new FileCursor({ position: '42', fileHandle: {} }))
 
   const cursor = new FileCursor({ fd: 'Open Sesame' })
 
@@ -208,4 +208,36 @@ tap.test('validation', async t => {
   t.throws(() => { cursor.skip('0') })
   await t.rejects(cursor.seek('0'))
   await cursor.seek(0)
+})
+
+tap.test('initial position', async t => {
+  t.plan(5)
+
+  const { FileCursor } = await t.mockImport('./file-cursor.mjs', {
+    'node:fs': {
+      read: fromString(
+        '1.21 gigawatts?!',
+        (fd, length, position) => {
+          t.equal(fd, 'Descripto Patronum')
+          t.equal(length, 42)
+          t.equal(position, 5)
+        },
+        () => {
+          t.fail()
+        }
+      )
+    }
+  })
+
+  const cursor = new FileCursor({
+    fd: 'Descripto Patronum',
+    bufferSize: 42,
+    position: 5
+  })
+  t.match(cursor, {
+    position: 5
+  })
+
+  const buffer = await cursor.seek(9)
+  t.equal(buffer.toString(), 'gigawatts')
 })
