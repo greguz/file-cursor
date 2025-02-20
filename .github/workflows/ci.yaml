@@ -37,7 +37,9 @@ jobs:
       - name: Coveralls
         uses: coverallsapp/github-action@v2
         with:
+          files: ./.tap/report/lcov.info
           flag-name: run-${{ join(matrix.*, '-') }}
+          format: lcov
           parallel: true
 
   finish:
