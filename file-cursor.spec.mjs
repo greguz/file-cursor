@@ -1,179 +1,211 @@
-import test from 'ava'
-import { open, unlink, writeFile } from 'fs/promises'
-import { tmpdir } from 'os'
-import * as path from 'path'
+import tap from 'tap'
 
-import { FileCursor } from './file-cursor.mjs'
+tap.test('constructor', async t => {
+  t.plan(4)
 
-let index = 0
-async function writeAndOpen (t, buffer) {
-  const file = path.join(tmpdir(), `file_cursor_${index++}.test`)
-  let fileHandle = null
-  await writeFile(file, buffer)
-  t.teardown(async () => {
-    if (fileHandle) {
-      await fileHandle.close()
+  const { FileCursor } = await import('./file-cursor.mjs')
+
+  t.throws(() => new FileCursor(), { message: 'Expected options object' })
+  t.throws(() => new FileCursor({}), { message: 'Expected file descriptor' })
+  t.ok(new FileCursor({ fd: -1 }))
+  t.ok(new FileCursor({ fileHandle: {} }))
+})
+
+function fromString (data, ...notifiers) {
+  let i = 0
+  return function readMock (fd, buffer, offset, length, position, callback) {
+    const notify = notifiers.shift()
+    if (notify) {
+      notify(fd, length, position)
     }
-    await unlink(file)
-  })
-  fileHandle = await open(file)
-  return fileHandle
+
+    process.nextTick(() => {
+      const bytesRead = buffer.write(
+        data.substring(i, i + length)
+      )
+
+      i += length
+      callback(null, bytesRead)
+    })
+  }
 }
 
-test('test', async t => {
-  const fileHandle = await writeAndOpen(
-    t,
-    Buffer.from([
-      0x48,
-      0x65,
-      0x6c,
-      0x6c,
-      0x6f,
-      0x20,
-      0x57,
-      0x6f,
-      0x72,
-      0x6c,
-      0x64
-    ])
-  )
+tap.test('happy path', async t => {
+  t.plan(10)
 
-  const cursor = new FileCursor({ fileHandle })
-  t.is(cursor.position, 0)
-
-  const a = await cursor.seek(1)
-  t.true(Buffer.isBuffer(a))
-  t.is(a.byteLength, 1)
-  t.is(a[0], 0x48)
-  t.is(cursor.position, 1)
-  t.false(cursor.EOF)
-
-  const b = await cursor.read(3)
-  t.true(Buffer.isBuffer(b))
-  t.is(b.byteLength, 3)
-  t.is(b[0], 0x65)
-  t.is(b[1], 0x6c)
-  t.is(b[2], 0x6c)
-  t.is(cursor.position, 4)
-  t.false(cursor.EOF)
-
-  await cursor.skip(1)
-  t.false(cursor.EOF)
-
-  const c = await cursor.seekUntil(byte => {
-    t.is(byte, 0x20)
-    return true
+  const { FileCursor } = await t.mockImport('./file-cursor.mjs', {
+    'node:fs': {
+      read: fromString(
+        'qwertyuiop',
+        (fd, length, position) => {
+          t.equal(fd, 'Bit Butler')
+          t.equal(length, 128)
+          t.equal(position, 0)
+        },
+        () => {
+          t.fail()
+        }
+      )
+    }
   })
-  t.true(Buffer.isBuffer(c))
-  t.is(c.byteLength, 1)
-  t.is(c[0], 0x20)
-  t.is(cursor.position, 6)
-  t.false(cursor.EOF)
 
-  await cursor.skip(42)
-  t.true(cursor.EOF)
+  const cursor = new FileCursor({
+    fd: 'Bit Butler',
+    bufferSize: 128
+  })
+  t.match(cursor, {
+    bufferSize: 128,
+    fd: 'Bit Butler',
+    position: 0
+  })
 
-  await t.throwsAsync(cursor.read(1), { message: 'Truncated (EOF)' })
-  await cursor.read(0)
+  const a = await cursor.seek(4)
+  t.match(cursor, { position: 4 })
+  t.equal(a.toString(), 'qwer')
+
+  const b = await cursor.seek(4)
+  t.match(cursor, { position: 8 })
+  t.equal(b.toString(), 'tyui')
+
+  const c = await cursor.seek(4)
+  t.match(cursor, { position: 10 })
+  t.equal(c.toString(), 'op')
 })
 
-test('throws', async t => {
+tap.test('iterable', async t => {
+  t.plan(19)
+
+  const { FileCursor } = await t.mockImport('./file-cursor.mjs', {
+    'node:fs': {
+      read: fromString(
+        '1234567890qwertyuiopasdfghjklzxcvbnm',
+        (fd, length, position) => {
+          t.equal(fd, 'Bytey McBytes')
+          t.equal(length, 8)
+          t.equal(position, 0)
+        },
+        (fd, length, position) => {
+          t.equal(fd, 'Bytey McBytes')
+          t.equal(length, 8)
+          t.equal(position, 8)
+        },
+        (fd, length, position) => {
+          t.equal(fd, 'Bytey McBytes')
+          t.equal(length, 8)
+          t.equal(position, 16)
+        },
+        (fd, length, position) => {
+          t.equal(fd, 'Bytey McBytes')
+          t.equal(length, 8)
+          t.equal(position, 24)
+        },
+        (fd, length, position) => {
+          t.equal(fd, 'Bytey McBytes')
+          t.equal(length, 8)
+          t.equal(position, 32)
+        },
+        () => {
+          t.fail()
+        }
+      )
+    }
+  })
+
+  const cursor = new FileCursor({
+    fd: 'Bytey McBytes',
+    bufferSize: 8
+  })
+  t.match(cursor, {
+    bufferSize: 8,
+    fd: 'Bytey McBytes',
+    position: 0
+  })
+
+  const chunks = []
+  for await (const chunk of cursor) {
+    chunks.push(chunk)
+  }
+
+  t.equal(chunks.length, 5)
+  t.equal(
+    Buffer.concat(chunks).toString(),
+    '1234567890qwertyuiopasdfghjklzxcvbnm'
+  )
+
+  t.equal(cursor.position, 36)
+})
+
+tap.test('skip from cache', async t => {
+  t.plan(9)
+
+  const { FileCursor } = await t.mockImport('./file-cursor.mjs', {
+    'node:fs': {
+      read: fromString(
+        'qwertyuiop',
+        (fd, length, position) => {
+          t.equal(fd, 'The Unflushable')
+          t.equal(length, 128)
+          t.equal(position, 0)
+        },
+        () => {
+          t.fail()
+        }
+      )
+    }
+  })
+
+  const cursor = new FileCursor({
+    fd: 'The Unflushable',
+    bufferSize: 128
+  })
+  t.match(cursor, {
+    bufferSize: 128,
+    eof: false,
+    fd: 'The Unflushable',
+    position: 0
+  })
+
+  const a = await cursor.seek(4)
+  t.match(cursor, {
+    eof: false,
+    position: 4
+  })
+  t.equal(a.toString(), 'qwer')
+
+  cursor.skip(4)
+  t.match(cursor, {
+    eof: false,
+    position: 8
+  })
+
+  const b = await cursor.seek(2)
+  t.match(cursor, {
+    eof: false,
+    position: 10
+  })
+  t.equal(b.toString(), 'op')
+})
+
+tap.test('validation', async t => {
+  const { FileCursor } = await t.mockImport('./file-cursor.mjs', {
+    'node:fs': {
+      read () {
+        t.fail()
+      }
+    }
+  })
+
   t.throws(() => new FileCursor())
+  t.throws(() => new FileCursor(null))
   t.throws(() => new FileCursor({}))
-  t.throws(
-    () => new FileCursor({
-      fileDescriptor: -1,
-      bufferSize: 0
-    })
-  )
-  t.throws(
-    () => new FileCursor({
-      fileDescriptor: -1,
-      startFrom: -1
-    })
-  )
-  t.throws(
-    () => new FileCursor({
-      fileDescriptor: -1,
-      endAt: -1
-    })
-  )
-  t.throws(
-    () => new FileCursor({
-      fileDescriptor: -1,
-      endAt: 0.1
-    })
-  )
-  const cursor = new FileCursor({
-    bufferSize: 1,
-    fileDescriptor: -1,
-    startFrom: 1,
-    endAt: 1
-  })
-  await t.throwsAsync(cursor.read(null), { message: 'Invalid length' })
-  await t.throwsAsync(cursor.seek(null), { message: 'Invalid length' })
-  await t.throwsAsync(cursor.set(null), { message: 'Invalid position' })
-  await t.throwsAsync(cursor.skip(null), { message: 'Invalid length' })
-})
+  t.ok(new FileCursor({ fileHandle: {} }))
+  t.throws(() => new FileCursor({ bufferSize: '42', fileHandle: {} }))
 
-test('virtual', async t => {
-  const fileHandle = await writeAndOpen(
-    t,
-    Buffer.from([
-      0x00,
-      0x01,
-      0x02, // < startFrom
-      0x03,
-      0x04,
-      0x05,
-      0x06,
-      0x07,
-      0x08,
-      0x09, // < endAt
-      0x10,
-      0x11,
-      0x12,
-      0x13,
-      0x14,
-      0x15
-    ])
-  )
-  t.teardown(() => fileHandle.close())
+  const cursor = new FileCursor({ fd: 'Open Sesame' })
 
-  const cursor = new FileCursor({
-    fileHandle,
-    bufferSize: 2,
-    startFrom: 2,
-    endAt: 9
-  })
-
-  const a = await cursor.read(1)
-  t.is(a.byteLength, 1)
-  t.is(a[0], 0x02)
-
-  const b = await cursor.read(5)
-  t.is(b.byteLength, 5)
-  t.is(b[0], 0x03)
-  t.is(b[1], 0x04)
-  t.is(b[2], 0x05)
-  t.is(b[3], 0x06)
-  t.is(b[4], 0x07)
-
-  const c = await cursor.seekUntil(() => false)
-  t.is(c.byteLength, 2)
-  t.true(cursor.EOF)
-  t.is(c[0], 0x08)
-  t.is(c[1], 0x09)
-
-  await cursor.set(14)
-  t.true(cursor.EOF)
-
-  await cursor.set(0)
-  t.false(cursor.EOF)
-
-  const d = await cursor.read(2)
-  t.is(d.byteLength, 2)
-  t.false(cursor.EOF)
-  t.is(d[0], 0x02)
-  t.is(d[1], 0x03)
+  t.throws(() => { cursor.position = '0' })
+  t.throws(() => { cursor.set('0') })
+  t.throws(() => { cursor.skip('0') })
+  await t.rejects(cursor.seek('0'))
+  await cursor.seek(0)
 })

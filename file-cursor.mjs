@@ -1,202 +1,220 @@
-import { read } from 'fs'
-import { promisify } from 'util'
+import { read } from 'node:fs'
 
-const readPromise = promisify(read)
+/**
+ * Customized `fs.read`.
+ */
+function readPromise (fd, length, position) {
+  return new Promise((resolve, reject) => {
+    const buffer = Buffer.alloc(length)
+
+    read(
+      fd,
+      buffer,
+      0,
+      length,
+      position,
+      (err, bytesRead) => {
+        if (err) {
+          reject(err)
+        } else if (bytesRead < length) {
+          resolve(buffer.subarray(0, bytesRead))
+        } else {
+          resolve(buffer)
+        }
+      }
+    )
+  })
+}
+
+/**
+ * Shorter than `Number.isInteger` :)
+ */
+function isInteger (value) {
+  return typeof value === 'number' && Number.isInteger(value)
+}
 
 export class FileCursor {
   /**
-   * End Of (internal) Buffer.
+   * Part of iterable protocol.
    */
-  get EOB () {
-    return this.relIndex >= this.buffer.byteLength
+  [Symbol.asyncIterator] () {
+    return this
   }
 
   /**
-   * Is `true` when the End Of File (EOF) is reached.
+   * Returns `true` when End Of File is reached.
    */
-  get EOF () {
-    return this.eofReached && this.EOB
+  get eof () {
+    return this._eof === true && this._index >= this._buffer.byteLength
   }
 
   /**
-   * Current cursor position (index).
+   * Gets current cursor position (index).
    */
   get position () {
-    return this.absIndex + this.relIndex
+    return this._position + this._index
+  }
+
+  /**
+   * Sets current cursor position (index).
+   */
+  set position (value) {
+    if (!isInteger(value) || value < 0) {
+      throw new TypeError('Expected positive integer or zero')
+    }
+
+    this._eof = false
+    if (
+      value >= this._position &&
+      value < this._position + this._buffer.byteLength
+    ) {
+      // Use cached buffer
+      this._index = value - this._position
+    } else {
+      // Reset status
+      this._buffer = Buffer.alloc(0)
+      this._index = 0
+      this._position = value
+    }
   }
 
   /**
    * @constructor
    * @param {Object} options
-   * @param {number} [options.fileDescriptor]
-   * @param {FileHandle} [options.fileHandle]
-   * @param {number} [options.bufferSize=16384]
-   * @param {number} [options.startFrom=0]
-   * @param {number} [options.endAt=Infinity]
+   * @param {number} [options.fd] File descriptor got from `fs.open`.
+   * @param {FileHandle} [options.fileHandle] Instance of `FileHandle` got from `fsPromises.open`.
+   * @param {number} [options.bufferSize=16384] Internal buffer size in bytes, defaults to 16 KiB.
    */
   constructor (options) {
-    options = Object(options)
+    if (typeof options !== 'object' || options === null) {
+      throw new TypeError('Expected options object')
+    }
 
-    if (options.fileHandle !== undefined) {
+    if (options.fd !== undefined) {
+      this.fd = options.fd
+    } else if (options.fileHandle !== undefined) {
       this.fd = options.fileHandle.fd
-    } else if (typeof options.fileDescriptor === 'number') {
-      this.fd = options.fileDescriptor
     } else {
       throw new Error('Expected file descriptor')
     }
 
-    const bufferSize = options.bufferSize === undefined
-      ? 16384
-      : options.bufferSize
-    if (!Number.isInteger(bufferSize) || bufferSize <= 0) {
+    const bufferSize = options.bufferSize || 16384
+    if (!isInteger(bufferSize) || bufferSize <= 0) {
       throw new TypeError('Buffer size must be a positive integer')
     }
 
-    const startFrom = options.startFrom === undefined ? 0 : options.startFrom
-    if (!Number.isInteger(startFrom) || startFrom < 0) {
-      throw new TypeError('Start index must be a positive integer or zero')
-    }
-
-    const endAt = options.endAt === undefined
-      ? Number.POSITIVE_INFINITY
-      : options.endAt
-    if (endAt !== Number.POSITIVE_INFINITY && !Number.isInteger(endAt)) {
-      throw new TypeError('End index must be an integer or positive infinity')
-    }
-    if (endAt < startFrom) {
-      throw new Error('End index cannot be less than start index')
-    }
-
-    this.startFrom = startFrom
-    this.endAt = endAt
+    // Buffer allocation
     this.bufferSize = bufferSize
-    this.absIndex = 0
-    this.relIndex = 0
-    this.buffer = Buffer.alloc(0)
-    this.eofReached = false
+
+    // Current read section
+    this._buffer = Buffer.alloc(0)
+
+    // Buffer's index
+    this._index = 0
+
+    // File position (index) from which the Buffer was read
+    this._position = 0
+
+    // Status flag
+    this._eof = false
   }
 
   /**
-   * Seeks bytes from the file and moves the cursor onward accordingly. It throws an error if the EOF is reached before retrieving all requested bytes.
-   * @param {number} length Number of bytes to read.
-   * @returns {Promise} Fulfills with the read bytes.
+   * Part of iterable protocol.
    */
-  async read (length) {
-    const buffer = await this.seek(length)
-    if (buffer.byteLength < length) {
-      throw new Error('Truncated (EOF)')
+  async next () {
+    if (this.eof) {
+      return { done: true }
     }
-    return buffer
+
+    const buffer = await this.seek(this.bufferSize)
+    if (!buffer.byteLength) {
+      return { done: true }
+    }
+    return {
+      done: false,
+      value: buffer
+    }
   }
 
   /**
    * Seeks bytes from the file and moves the cursor onward accordingly.
-   * @param {number} length Number of bytes to seek.
-   * @returns {Promise} Fulfills with the read bytes.
+   * Guarantees at most a single `fs.read()`.
    */
   async seek (length) {
-    if (!Number.isInteger(length) || length < 0) {
-      throw new TypeError('Invalid length')
+    if (!isInteger(length) || length < 0) {
+      throw new TypeError('Expected positive integer or zero')
     }
     if (length === 0) {
       return Buffer.alloc(0)
     }
-    const lastByteIndex = this.position + length - 1
-    return this.seekUntil((byte, position) => position === lastByteIndex)
-  }
 
-  /**
-   * Seeks bytes from the file until the `predicate` returns `true` and moves the cursor onward accordingly.
-   * @param {Function} predicate Function that takes the current byte and position as arguments.
-   * @returns {Promise} Fulfills with the read bytes.
-   */
-  async seekUntil (predicate) {
-    if (this.EOF) {
-      return Buffer.alloc(0)
-    }
+    // Heading buffer (from cache, if any)
+    let head
 
-    const chunks = []
+    if (this._index < this._buffer.byteLength) {
+      const offset = Math.min(
+        this._buffer.byteLength - this._index,
+        length
+      )
 
-    let done = false
-    let start = this.relIndex
+      head = this._buffer.subarray(
+        this._index,
+        this._index + offset
+      )
 
-    while (!done) {
-      if (this.EOB) {
-        chunks.push(this.buffer.slice(start))
-        await this.set(this.absIndex + this.buffer.byteLength)
-        start = this.relIndex
+      this._index += offset
+
+      if (head.byteLength >= length) {
+        return head
       }
 
-      const position = this.position
-      const byte = this.buffer[this.relIndex++]
-      done = predicate(byte, position)
-
-      if (this.EOF) {
-        done = true
-      }
-      if (done) {
-        chunks.push(this.buffer.slice(start, this.relIndex))
-      }
+      length -= head.byteLength
     }
 
-    return Buffer.concat(chunks)
-  }
-
-  /**
-   * Sets cursor position.
-   * @param {number} position Position index to jump on.
-   * @returns {Promise}
-   */
-  async set (position) {
-    if (!Number.isInteger(position) || position < 0) {
-      throw new TypeError('Invalid position')
-    }
-    if (position >= this.absIndex && position < this.absIndex + this.buffer.byteLength) {
-      this.relIndex = position - this.absIndex
-      return
+    if (this._eof) {
+      return head || Buffer.alloc(0)
     }
 
-    this.absIndex = position
-    this.relIndex = 0
-
-    const realPosition = this.startFrom + position
-    if (realPosition >= this.endAt) {
-      this.eofReached = true
-      this.buffer = Buffer.alloc(0)
-      return
-    }
-
-    const eofVirtual = realPosition + this.bufferSize >= this.endAt
-
-    const buffer = Buffer.alloc(
-      eofVirtual
-        ? this.endAt + 1 - realPosition
-        : this.bufferSize
-    )
-
-    const { bytesRead } = await readPromise(
+    const readSize = Math.max(this.bufferSize, length)
+    this._buffer = await readPromise(
       this.fd,
-      buffer,
-      0,
-      buffer.byteLength,
-      realPosition
+      readSize,
+      this.position
     )
 
-    const eofReal = bytesRead < buffer.byteLength
+    this._eof = this._buffer.byteLength < readSize
 
-    this.eofReached = eofReal || eofVirtual
-    this.buffer = eofReal ? buffer.slice(0, bytesRead) : buffer
+    // Move absolute position
+    this._position = this.position
+
+    // Set buffer index accordingly (needs to be after position getter)
+    this._index = Math.min(length, this._buffer.byteLength)
+
+    const tail = this._buffer.subarray(0, this._index)
+    return head
+      ? Buffer.concat([head, tail])
+      : tail
   }
 
   /**
-   * Moves the cursor's position onward by the specified bytes.
-   * @param {number} length Number of bytes to skip.
-   * @returns {Promise}
+   * Alias for `position` setter.
    */
-  async skip (length) {
-    if (!Number.isInteger(length) || length < 0) {
-      throw new TypeError('Invalid length')
+  set (position) {
+    this.position = position
+    return this
+  }
+
+  /**
+   * Skips a number of bytes from being read.
+   */
+  skip (offset) {
+    if (!isInteger(offset) || offset < 0) {
+      throw new TypeError('Expected positive integer or zero')
     }
-    return this.set(this.position + length)
+    if (offset > 0) {
+      this.set(this.position + offset)
+    }
+    return this
   }
 }

@@ -6,7 +6,8 @@
   "main": "./file-cursor.cjs",
   "exports": {
     "import": "./file-cursor.mjs",
-    "require": "./file-cursor.cjs"
+    "require": "./file-cursor.cjs",
+    "types": "./file-cursor.d.ts"
   },
   "types": "./file-cursor.d.ts",
   "files": [
@@ -16,8 +17,8 @@
   ],
   "scripts": {
     "build": "rollup -c",
-    "lint": "standard **/*.mjs",
-    "test": "c8 -r html -r lcov -r text -x **/*.spec.mjs ava",
+    "lint": "standard",
+    "test": "tap",
     "prepublishOnly": "npm run lint && npm run build && npm test"
   },
   "keywords": [
@@ -30,10 +31,9 @@
   "author": "Giacomo Gregoletto",
   "license": "MIT",
   "devDependencies": {
-    "ava": "4.0.0-rc.1",
-    "c8": "^7.10.0",
-    "rollup": "^2.59.0",
-    "standard": "^16.0.4"
+    "rollup": "^4.34.8",
+    "standard": "^17.1.2",
+    "tap": "^21.0.2"
   },
   "repository": {
     "type": "git",

@@ -1,0 +1,12 @@
+# vim: set filetype=yaml :
+allow-incomplete-coverage: true
+bail: true
+coverage-report:
+  - html
+  - lcov
+  - text
+browser: false
+timeout: 60 # seconds
+include:
+  - "./file-cursor.spec.mjs"
+test-env: [NODE_ENV=test]

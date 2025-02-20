@@ -1,8 +1,8 @@
 export default {
-  input: 'file-cursor.mjs',
+  input: './file-cursor.mjs',
   output: {
-    file: 'file-cursor.cjs',
+    file: './file-cursor.cjs',
     format: 'cjs'
   },
-  external: ['fs', 'util']
+  external: ['node:fs']
 }

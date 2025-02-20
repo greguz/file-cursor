@@ -1,3 +1,5 @@
+import type { FileHandle } from 'node:fs/promises'
+
 export interface FileCursorOptions {
   /**
    * File descriptor got from [fs.open](https://nodejs.org/api/fs.html#fsopenpath-flags-mode-callback).
@@ -6,61 +8,59 @@ export interface FileCursorOptions {
   /**
    * Instance of [FileHandle](https://nodejs.org/api/fs.html#class-filehandle) got from [fsPromises.open](https://nodejs.org/api/fs.html#fspromisesopenpath-flags-mode).
    */
-  fileHandle?: any;
+  fileHandle?: FileHandle;
   /**
-   * Internal buffer size in bytes. Defaults to 16 KiB (Node.js default).
+   * Internal buffer size in bytes, defaults to 16 KiB.
+   * 
    * @default 16384
    */
   bufferSize?: number;
-  /**
-   * Inclusive start index number. If specified, the file will be virtually read from that index.
-   * @default 0
-   */
-  startFrom?: number
-  /**
-   * Inclusive EOF index number. If specified, the EOF will be virtually reached at that index.
-   * @default Infinity
-   */
-  endAt?: number
 }
 
-export declare class FileCursor {
+export declare class FileCursor implements AsyncIterableIterator<Buffer> {
   /**
-   * Is `true` when the End Of File (EOF) is reached.
+   * Part of iterable protocol.
    */
-  get EOF(): number;
+  [Symbol.asyncIterator](): this;
   /**
-   * Current cursor position (index).
+   * Returns `true` when End Of File is reached.
+   */
+  get eof(): boolean;
+  /**
+   * Gets current cursor position (index).
    */
   get position(): number;
   /**
-   * The numeric file descriptor managed by the [`<FileHandle>`](https://nodejs.org/api/fs.html#class-filehandle) object.
+   * Sets current cursor position (index).
    */
-  fd: number;
+  set position(value: number);
+  /**
+   * Internal buffer size in bytes.
+   */
+  readonly bufferSize: number;
+  /**
+   * Used file descriptor.
+   */
+  readonly fd: number;
   /**
    * @constructor
    */
   constructor(options: FileCursorOptions);
   /**
-   * Seeks bytes from the file and moves the cursor onward accordingly. It throws an error if the EOF is reached before retrieving all requested bytes.
+   * Part of iterable protocol.
    */
-  read(length: number): Promise<Buffer>;
+  next(): Promise<IteratorResult<Buffer>>;
   /**
    * Seeks bytes from the file and moves the cursor onward accordingly.
+   * Guarantees at most a single `fs.read()`.
    */
   seek(length: number): Promise<Buffer>;
   /**
-   * Seeks bytes from the file until the `predicate` returns `true` and moves the cursor onward accordingly.
+   * Alias for `position` setter.
    */
-  seekUntil(
-    predicate: (byte: number, position: number) => boolean
-  ): Promise<Buffer>;
+  set(position: number): this;
   /**
-   * Sets cursor position.
+   * Skips a number of bytes from being read.
    */
-  set(position: number): Promise<void>;
-  /**
-   * Moves the cursor's position onward by the specified bytes.
-   */
-  skip(length: number): Promise<void>;
+  skip(offset: number): this;
 }

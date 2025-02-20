@@ -2,7 +2,7 @@
 
 [![JavaScript Style Guide](https://img.shields.io/badge/code_style-standard-brightgreen.svg)](https://standardjs.com)
 [![Coverage Status](https://coveralls.io/repos/github/greguz/file-cursor/badge.svg?branch=master)](https://coveralls.io/github/greguz/file-cursor?branch=master)
-![npm](https://img.shields.io/npm/v/file-cursor)
+[![npm](https://img.shields.io/npm/v/file-cursor)](https://www.npmjs.com/package/file-cursor)
 ![npm bundle size](https://img.shields.io/bundlephobia/minzip/file-cursor)
 
 Node.js has a nice FS implementation in place. But there are no simple methods to open a file cursor and jump forward or backward through bytes easily (as far as I know). This library should be an optimized way to handle gigantic files and hops back and forth between bytes without too many problems.
@@ -18,102 +18,100 @@ The cursor mimics that mechanism and locally cache a proper size of data in memo
 ## Features
 
 - **Zero dependencies**: small footprint.
-- **ES modules support**: you can jump on the "new era" wagon right now.
-- **CommonJS modules support**: classic runtimes are still supported.
 - **Configurable internal buffer size**: memory allocation fine tuning.
-- **Virtual limits**: declares file limits for the cursor.
+- **AsyncIterator**: implements the `async` version of the iterable protocol.
+- **ESM**: this project is written in pure ESM syntax.
+- **CommonJS support**: classic runtimes are still supported.
 - **TypeScript support**
 
 ## Example
 
 ```javascript
-// Hello Cursor
+// Message we will print: Hello Cursor
 
 import { open } from 'fs/promises'
 import { FileCursor } from 'file-cursor'
 import { fileURLToPath } from 'url'
 
-async function foo () {
-  // Open this file
-  const fileHandle = await open(fileURLToPath(import.meta.url))
+// Open this file
+const fileHandle = await open(fileURLToPath(import.meta.url))
 
+try {
   // Create the cursor
   const cursor = new FileCursor({ fileHandle })
 
-  // Skip first 3 bytes (comment and single space at the beginning of this file)
-  await cursor.skip(3)
+  // Skip first 26 bytes
+  cursor.skip(26)
 
   // Seek for the next 12 bytes
   const buffer = await cursor.seek(12)
 
-  // Print the result as UTF-8 string (will log "Hello Cursor")
+  // Logs "Hello Cursor"
   console.log(buffer.toString())
-
+} finally {
   // Close the file descriptor when done
   await fileHandle.close()
 }
-
-foo()
 ```
 
 ## API
 
-### **new FileCursor(options)**
+### `new FileCursor(options)`
 
-Either `fileDescriptor` or `fileHandle` option must be provided.
+Either `fd` or `fileHandle` option must be provided.
 
 - `options` `<Object>`
-  - `[fileDescriptor]` `<Number>`
-  - `[fileHandle]` [`<FileHandle>`](https://nodejs.org/api/fs.html#class-filehandle)
-  - `[bufferSize]` `<Number>` Defaults to `16384`.
-  - `[startFrom]` `<Number>` Inclusive virtual upper limit (index). Default to `0`.
-  - `[endAt]` `<Number>` Inclusive virtual lower limit (index). Defaults to `Infinity`.
+  - `[fd]` File descriptor got from [fs.open](https://nodejs.org/api/fs.html#fsopenpath-flags-mode-callback).
+  - `[fileHandle]` Instance of [FileHandle](https://nodejs.org/api/fs.html#class-filehandle) got from [fsPromises.open](https://nodejs.org/api/fs.html#fspromisesopenpath-flags-mode).
+  - `[bufferSize]` `<Number>` Internal buffer size in bytes, defaults to 16 KiB.
 
-### **FileCursor#fd**
+### `FileCursor::fd`
 
-The numeric file descriptor managed by the [`<FileHandle>`](https://nodejs.org/api/fs.html#class-filehandle) object.
+Used file descriptor.
 
-### **FileCursor#position**
+### `FileCursor::bufferSize`
 
-Current cursor position (index).
+Internal buffer size in bytes.
 
-### **FileCursor#EOF**
+### `FileCursor::position`
 
-Is `true` when the End Of File (EOF) is reached.
+Gets or sets current cursor position (index).
 
-### **FileCursor#seek(length)**
+### `FileCursor::eof`
+
+Returns `true` (getter) when End Of File is reached.
+
+### `FileCursor::seek(size)`
 
 Seeks bytes from the file and moves the cursor onward accordingly.
+Guarantees at most a single `fs.read()`.
 
 - `length` `<Number>` Number of bytes to seek.
 - Returns: `<Promise>` Fulfills with the read bytes.
 
-### **FileCursor#seekUntil(predicate)**
+### `FileCursor::set(position)`
 
-Seeks bytes from the file until the `predicate` returns `true` and moves the cursor onward accordingly.
+Alias for `position` setter.
 
-- `predicate` `<Function>`
-  - `byte` `<Number>` Current read byte.
-  - `position` `<Number>` Current cursor position.
-- Returns: `<Promise>` Fulfills with the read bytes.
+- `position` `<Number>` Position (index) to jump on.
+- Returns: `<FileCursor>`
 
-### **FileCursor#read(length)**
+### `FileCursor::skip(offset)`
 
-Seeks bytes from the file and moves the cursor onward accordingly. It throws an error if the EOF is reached before retrieving all requested bytes.
+Skips a number of bytes from being read.
 
-- `length` `<Number>` Number of bytes to read.
-- Returns: `<Promise>` Fulfills with the read bytes.
+- `offset` `<Number>` Number of bytes to skip.
+- Returns: `<FileCursor>`
 
-### **FileCursor#skip(length)**
+### `FileCursor::Symbol.AsyncIterable`
 
-Moves the cursor's position onward by the specified bytes.
+`FileCursor` class also implements the `async` version of the [iteration protocol](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_async_iterator_and_async_iterable_protocols).
 
-- `length` `<Number>` Number of bytes to skip.
-- Returns: `<Promise>`
+```javascript
+for await (const buffer of cursor) {
+  console.log(`read ${buffer.bytesLength} bytes`)
+  console.log(`new position: ${cursor.position}`)
+}
 
-### **FileCursor#set(position)**
-
-Sets cursor position.
-
-- `position` `<Number>` Position index to jump on.
-- Returns: `<Promise>`
+console.log(buffer.eof) // true
+```
